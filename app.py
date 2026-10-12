@@ -1021,12 +1021,20 @@ def train():
 # PREDICTION
 # ============================================================
 
+
 @app.route("/predict", methods=["GET", "POST"])
 @login_required
 def predict():
     user_id = session["user_id"]
-    jobs_list = Job.query.filter_by(user_id=user_id).order_by(Job.created_at.desc()).all()
-    candidates_list = Candidate.query.filter_by(user_id=user_id).order_by(Candidate.created_at.desc()).all()
+
+    jobs_list = Job.query.filter_by(
+        user_id=user_id
+    ).order_by(Job.created_at.desc()).all()
+
+    candidates_list = Candidate.query.filter_by(
+        user_id=user_id
+    ).order_by(Candidate.created_at.desc()).all()
+
     result = None
 
     if request.method == "POST":
@@ -1034,24 +1042,41 @@ def predict():
             flash("Prediction failed. Please train the model first.", "danger")
             return redirect(url_for("train"))
 
+        # Validate and convert IDs to integers
+        try:
+            job_id = int(request.form.get("job_id", ""))
+            candidate_id = int(request.form.get("candidate_id", ""))
+        except (ValueError, TypeError):
+            flash("Please select a valid job and candidate.", "danger")
+            return redirect(url_for("predict"))
+
+        # Fetch selected job and candidate
         job = Job.query.filter_by(
-            id=request.form.get("job_id"),
+            id=job_id,
             user_id=user_id
         ).first_or_404()
 
         candidate = Candidate.query.filter_by(
-            id=request.form.get("candidate_id"),
+            id=candidate_id,
             user_id=user_id
         ).first_or_404()
 
         bundle = joblib.load(MODEL_PATH)
         breakdown = matching_breakdown(job, candidate)
+
         try:
             probability = match_probability(job, candidate, bundle)
-            nearest_jobs = nearest_jobs_for(candidate, job, user_id, bundle)
-            prediction_model_name = bundle.get("best_model", "Trained ML Model")
+            nearest_jobs = nearest_jobs_for(
+                candidate, job, user_id, bundle
+            )
+            prediction_model_name = bundle.get(
+                "best_model", "Trained ML Model"
+            )
         except Exception:
-            flash("Prediction failed. Please retrain the model using the updated dataset.", "danger")
+            flash(
+                "Prediction failed. Please retrain the model using the updated dataset.",
+                "danger"
+            )
             return redirect(url_for("train"))
 
         label = (
