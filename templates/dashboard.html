@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — JobMatch{% endblock %}
+{% block content %}
+<div class="container">
+<div class="page-title"><span class="eyebrow">DASHBOARD</span><h1>Welcome back, {{ current_user.full_name }}</h1><p>Your JobMatch activity at a glance.</p></div>
+<div class="stats">
+<div class="stat"><span>Total Jobs</span><strong>{{ jobs }}</strong></div>
+<div class="stat"><span>Total Candidates</span><strong>{{ candidates }}</strong></div>
+<div class="stat"><span>Predictions</span><strong>{{ predictions }}</strong></div>
+<div class="stat"><span>Average Eligibility</span><strong>{{ average }}%</strong></div>
+</div>
+<div class="card form-card" style="margin-top:22px">
+<h2>Recent Predictions</h2>
+{% if recent %}
+<div class="table-wrap"><table class="table"><tr><th>Job</th><th>Candidate</th><th>Score</th><th>Result</th><th>Date</th></tr>
+{% for p in recent %}<tr><td>Job #{{ p.job_id }}</td><td>Candidate #{{ p.candidate_id }}</td><td>{{ p.probability }}%</td><td><span class="badge">{{ p.label }}</span></td><td>{{ p.created_at | ist('%d %b %Y') }}</td></tr>{% endfor %}
+</table></div>
+{% else %}<div class="notice">No predictions yet. Add a job and candidate, train the model, then open Predict.</div>{% endif %}
+</div>
+</div>
+{% endblock %}

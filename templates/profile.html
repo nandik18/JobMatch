@@ -1,0 +1,6 @@
+{% extends "base.html" %}
+{% block title %}Profile — JobMatch{% endblock %}
+{% block content %}
+<div class="container"><div class="page-title"><span class="eyebrow">PROFILE</span><h1>Your Account</h1><p>Update your basic account information.</p></div>
+<div class="card form-card" style="max-width:650px"><form method="post"><div class="field"><label>Full Name</label><input name="full_name" value="{{ current_user.full_name }}" required></div><div class="field"><label>Email</label><input type="email" name="email" value="{{ current_user.email }}" required></div><button class="btn btn-primary">Save Changes</button></form></div></div>
+{% endblock %}

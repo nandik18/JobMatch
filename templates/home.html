@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}JobMatch — Smart Job Matching{% endblock %}
+{% block content %}
+<section class="hero">
+<div>
+<span class="eyebrow">AI / ML JOB MATCHING</span>
+<h1>Find the right job match with <span>data.</span></h1>
+<p>JobMatch compares job requirements with candidate information and predicts an eligibility probability using machine learning.</p>
+<div class="hero-actions">
+{% if current_user %}
+<a class="btn btn-primary btn-lg" href="{{ url_for('predict') }}">Make a Prediction</a>
+<a class="btn btn-secondary btn-lg" href="{{ url_for('dashboard') }}">View Dashboard</a>
+{% else %}
+<button class="btn btn-primary btn-lg" data-open="signup">Get Started</button>
+<button class="btn btn-secondary btn-lg" data-open="login">Login</button>
+{% endif %}
+</div>
+</div>
+<div class="hero-card">
+<div class="demo-icon">✦</div>
+<div class="demo-kicker">HOW JOBMATCH WORKS</div>
+<h2>Get a model-based match score</h2>
+<p class="muted">The percentage below is not shown until you actually run a prediction.</p>
+<div class="demo-step"><span>01</span><div><strong>Skills</strong><small>Compare required skills with candidate skills.</small></div></div>
+<div class="demo-step"><span>02</span><div><strong>Experience</strong><small>Compare required experience with candidate experience.</small></div></div>
+<div class="demo-step"><span>03</span><div><strong>Education</strong><small>Compare the job's education requirement.</small></div></div>
+<div class="demo-note">{% if latest_prediction %}<strong>Latest Match Score: {{ "%.2f"|format(latest_prediction.probability) }}%</strong> — {{ latest_prediction.label }}{% else %}No prediction has been made yet.{% endif %}</div>
+</div>
+</section>
+<section class="section">
+<div class="section-heading"><span class="eyebrow">WORKFLOW</span><h2>From requirements to prediction</h2></div>
+<div class="feature-grid">
+<div class="feature-card"><span>01</span><h3>Add Jobs</h3><p>Save job title, skills, education, experience and other requirements.</p></div>
+<div class="feature-card"><span>02</span><h3>Add Candidates</h3><p>Store candidate education, skills, experience, projects and CV text.</p></div>
+<div class="feature-card"><span>03</span><h3>Train Models</h3><p>Compare five classification models using your CSV dataset.</p></div>
+<div class="feature-card"><span>04</span><h3>Predict</h3><p>Run a prediction and save the result to your prediction history.</p></div>
+</div>
+</section>
+{% endblock %}

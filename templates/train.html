@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Train Model — JobMatch{% endblock %}
+{% block content %}
+<div class="container">
+<div class="page-title"><span class="eyebrow">MACHINE LEARNING</span><h1>Train & Evaluate</h1><p>Choose one of three built-in mixed-industry datasets or upload your own compatible CSV. Compare Logistic Regression, Random Forest, Decision Tree, Naive Bayes and Support Vector Machine.</p></div>
+<div class="card form-card"><h2>Choose Training Dataset</h2>
+<div class="notice" style="margin-bottom:18px">All datasets must contain a target column named <b>Eligible</b> with Yes/No or 1/0 values. Custom CSVs should use the same JobMatch form column names for useful predictions.</div>
+<form method="post" enctype="multipart/form-data">
+<div class="field"><label for="dataset_choice">Dataset <span style="color:#dc2626">*</span></label>
+<select id="dataset_choice" name="dataset_choice" required onchange="document.getElementById('custom-dataset-area').hidden = this.value !== 'custom'; document.getElementById('dataset_file').required = this.value === 'custom';">
+<option value="1">Dataset 1 — Original (2,000 rows)</option>
+<option value="2">Dataset 2 — Mixed Industries (3,000 rows)</option>
+<option value="3">Dataset 3 — Varied Candidate Profiles (4,000 rows)</option>
+<option value="custom">Add Own Dataset (Upload CSV)</option>
+</select></div>
+<div class="field" id="custom-dataset-area" hidden><label for="dataset_file">Choose CSV File <span style="color:#dc2626">*</span></label><input id="dataset_file" type="file" name="dataset" accept=".csv,text/csv"></div>
+<button class="btn btn-primary" type="submit">Train Models</button></form></div>
+{% if result %}
+<div class="card form-card" style="margin-top:22px"><h2>Training Result</h2><div class="stats" style="margin-bottom:25px"><div class="stat"><span>Rows</span><strong>{{ result.rows }}</strong></div><div class="stat"><span>Columns</span><strong>{{ result.columns }}</strong></div><div class="stat"><span>Target</span><strong style="font-size:22px">{{ result.target }}</strong></div><div class="stat"><span>Best Model</span><strong style="font-size:20px">{{ result.best_model }}</strong></div></div>
+<div class="table-wrap"><table class="table"><tr><th>Model</th><th>Accuracy</th><th>Precision</th><th>Recall</th><th>F1 Score</th><th>Confusion Matrix</th></tr>
+{% for name,metrics in result.results.items() %}<tr><td><b>{{ name }}</b>{% if name==result.best_model %} <span class="badge">Best</span>{% endif %}</td><td>{{ (metrics.accuracy*100)|round(2) }}%</td><td>{{ (metrics.precision*100)|round(2) }}%</td><td>{{ (metrics.recall*100)|round(2) }}%</td><td>{{ (metrics.f1*100)|round(2) }}%</td><td>{{ metrics.confusion }}</td></tr>{% endfor %}
+</table></div></div>
+{% endif %}
+<div class="card form-card" style="margin-top:22px"><h2>Recent Training Runs</h2>
+{% if history %}<div class="table-wrap"><table class="table"><tr><th>Dataset</th><th>Target</th><th>Best Model</th><th>Accuracy</th><th>F1</th><th>Date</th></tr>{% for row in history %}<tr><td>{{ row.dataset_name }}</td><td>{{ row.target }}</td><td>{{ row.best_model }}</td><td>{{ (row.accuracy*100)|round(2) }}%</td><td>{{ (row.f1*100)|round(2) }}%</td><td>{{ row.created_at | ist }}</td></tr>{% endfor %}</table></div>{% else %}<div class="notice">No training runs yet.</div>{% endif %}
+</div></div>
+{% endblock %}

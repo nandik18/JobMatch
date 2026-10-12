@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}History — JobMatch{% endblock %}
+{% block content %}
+<div class="container"><div class="page-title"><span class="eyebrow">PREDICTION HISTORY</span><h1>Previous Predictions</h1><p>Every prediction is saved for your account.</p></div>
+<div class="card form-card">
+{% if predictions %}<div class="table-wrap"><table class="table"><tr><th>Job</th><th>Candidate</th><th>Probability</th><th>Result</th><th>Model</th><th>Date</th></tr>
+{% for p in predictions %}<tr><td>Job #{{ p.job_id }}</td><td>Candidate #{{ p.candidate_id }}</td><td><b>{{ p.probability }}%</b></td><td><span class="badge">{{ p.label }}</span></td><td>{{ p.model_name }}</td><td>{{ p.created_at | ist }}</td></tr>{% endfor %}</table></div>
+{% else %}<div class="notice">No predictions saved yet.</div>{% endif %}
+</div></div>
+{% endblock %}
