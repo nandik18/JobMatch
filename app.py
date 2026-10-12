@@ -4,7 +4,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
-import os, re, json
+import os, re, json, threading
 from dotenv import load_dotenv
 
 # Read DATABASE_URL and SECRET_KEY from the local .env file before configuring Flask.
@@ -20,7 +20,7 @@ from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.tree import DecisionTreeClassifier
-from sklearn.naive_bayes import GaussianNB
+from sklearn.naive_bayes import MultinomialNB
 from sklearn.svm import SVC
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
 
@@ -48,6 +48,7 @@ DATASETS = {
     "3": ("Dataset 3 — Varied Candidate Profiles (4,000 rows)", os.path.join(BASE_DIR, "uploads", "jobmatch_dataset_3_varied_profiles.csv")),
 }
 MODEL_PATH = os.path.join(BASE_DIR, "model.pkl")
+TRAINING_LOCK = threading.Lock()
 
 
 # Shared dropdown values used by BOTH Job and Candidate forms.
@@ -454,16 +455,12 @@ def to_dense(x):
 
 
 def train_models(file_path):
-    # --------------------------------
-    # 1. Get uploaded or default dataset
-    # --------------------------------
-    data = pd.read_csv(file_path)
+    """Train five models with bounded memory on a small Render instance."""
+    import gc
+    import tempfile
+    from sklearn.base import clone
 
-    # --------------------------------
-    # 2. Data Cleaning
-    # --------------------------------
-    data = data.drop_duplicates()
-    data = data.dropna(how="all")
+    data = pd.read_csv(file_path).drop_duplicates().dropna(how="all")
     if "Eligible" not in data.columns:
         raise ValueError("Dataset must contain the Eligible target column.")
     y = normalize_target(data["Eligible"])
@@ -473,9 +470,6 @@ def train_models(file_path):
     if y.nunique() != 2:
         raise ValueError("Eligible must contain both Yes and No examples.")
 
-    # --------------------------------
-    # 3. Separate Input and Output
-    # --------------------------------
     X = data.drop(columns=["Eligible"])
     X = X.drop(columns=[c for c in X if "certif" in c.lower() or c.lower() in ("preferred_skills", "soft_skills")], errors="ignore")
     X = X.drop(columns=[c for c in ["Transaction_ID", "id"] if c in X], errors="ignore")
@@ -484,56 +478,55 @@ def train_models(file_path):
     for col in numeric_columns:
         X[col] = pd.to_numeric(X[col], errors="coerce")
     for col in categorical_columns:
-        X[col] = X[col].fillna("").astype(str)
+        X[col] = X[col].fillna("").astype("category")
 
-    # Encode categorical data with a fitted preprocessing pipeline.
-    # Unlike LabelEncoder on each column, this safely handles unseen
-    # dropdown selections at prediction time.
+    # Fit preprocessing ONCE; sparse one-hot encoding avoids huge dense matrices.
     preprocessor = ColumnTransformer([
         ("numbers", Pipeline([
             ("imputer", SimpleImputer(strategy="median")),
             ("scaler", StandardScaler())
         ]), numeric_columns),
-        ("categories", OneHotEncoder(handle_unknown="ignore"), categorical_columns)
-    ])
+        ("categories", OneHotEncoder(handle_unknown="ignore", dtype=np.float32), categorical_columns)
+    ], sparse_threshold=1.0)
 
-    # --------------------------------
-    # 4. Train-Test Split
-    # --------------------------------
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=0.20, random_state=42, stratify=y
     )
+    X_train_encoded = preprocessor.fit_transform(X_train)
+    X_test_encoded = preprocessor.transform(X_test)
+    del X_train, X_test, data
+    gc.collect()
 
-    # --------------------------------
-    # 5. Create Models
-    # --------------------------------
     models = {
-        "Logistic Regression": LogisticRegression(max_iter=2000, class_weight="balanced"),
+        "Logistic Regression": LogisticRegression(max_iter=600, class_weight="balanced"),
         "Random Forest": RandomForestClassifier(
-            n_estimators=200, random_state=42, class_weight="balanced", n_jobs=-1
+            n_estimators=60, max_depth=14, min_samples_leaf=2,
+            random_state=42, class_weight="balanced", n_jobs=1
         ),
-        "Decision Tree": DecisionTreeClassifier(random_state=42, class_weight="balanced"),
-        "Naive Bayes": GaussianNB(),
-        "Support Vector Machine": SVC(kernel="rbf", probability=True, random_state=42, class_weight="balanced")
+        "Decision Tree": DecisionTreeClassifier(
+            max_depth=20, min_samples_leaf=2, random_state=42, class_weight="balanced"
+        ),
+        "Naive Bayes": MultinomialNB(),
+        "Support Vector Machine": SVC(
+            kernel="linear", probability=False, random_state=42, class_weight="balanced"
+        )
     }
 
-    # --------------------------------
-    # 6. Train Models
-    # 7. Make Predictions
-    # 8. Calculate Evaluation Metrics
-    # --------------------------------
     results = {}
-    fitted = {}
+    best_model = None
+    best_score = -1
+    best_fitted = None
+    # MultinomialNB requires nonnegative features; use sparse absolute values
+    # (the scaler can create negative numeric values).
     for name, model in models.items():
-        # GaussianNB requires dense input; sparse output is supported by other classifiers.
         if name == "Naive Bayes":
-            from sklearn.preprocessing import FunctionTransformer
-            dense = FunctionTransformer(to_dense, validate=False)
-            pipeline = Pipeline([("preprocessor", preprocessor), ("dense", dense), ("model", model)])
+            train_matrix = abs(X_train_encoded)
+            test_matrix = abs(X_test_encoded)
         else:
-            pipeline = Pipeline([("preprocessor", preprocessor), ("model", model)])
-        pipeline.fit(X_train, y_train)
-        prediction = pipeline.predict(X_test)
+            train_matrix = X_train_encoded
+            test_matrix = X_test_encoded
+        model.fit(train_matrix, y_train)
+        prediction = model.predict(test_matrix)
         results[name] = {
             "accuracy": round(accuracy_score(y_test, prediction), 4),
             "precision": round(precision_score(y_test, prediction, zero_division=0), 4),
@@ -541,28 +534,46 @@ def train_models(file_path):
             "f1": round(f1_score(y_test, prediction, zero_division=0), 4),
             "confusion": confusion_matrix(y_test, prediction).tolist()
         }
-        fitted[name] = pipeline
+        if results[name]["f1"] > best_score:
+            best_score = results[name]["f1"]
+            best_model = name
+            best_fitted = model
+        del prediction, train_matrix, test_matrix
+        gc.collect()
 
-    # --------------------------------
-    # 9. Save Best Model
-    # --------------------------------
-    best_model = max(results, key=lambda name: results[name]["f1"])
-    joblib.dump({
-        "model": fitted[best_model],
+    # Prediction expects a pipeline; keep a preprocessing transform inside it.
+    # Naive Bayes is trained on absolute-valued features, so persist that step.
+    if best_model == "Naive Bayes":
+        from sklearn.preprocessing import FunctionTransformer
+        pipeline = Pipeline([
+            ("preprocessor", preprocessor),
+            ("nonnegative", FunctionTransformer(np.abs, validate=False)),
+            ("model", best_fitted)
+        ])
+    else:
+        pipeline = Pipeline([("preprocessor", preprocessor), ("model", best_fitted)])
+
+    payload = {
+        "model": pipeline,
         "columns": X.columns.tolist(),
         "numeric_columns": numeric_columns,
         "categorical_columns": categorical_columns,
         "target": "Eligible",
         "best_model": best_model,
         "models": results
-    }, MODEL_PATH)
+    }
+    # Write a temporary file and replace only after serialization succeeds.
+    fd, temp_path = tempfile.mkstemp(prefix="jobmatch_model_", suffix=".pkl", dir=BASE_DIR)
+    os.close(fd)
+    try:
+        joblib.dump(payload, temp_path, compress=3)
+        os.replace(temp_path, MODEL_PATH)
+    finally:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
 
-    # --------------------------------
-    # 10. Dataset Information
-    # 11. Send Data to Frontend
-    # --------------------------------
     return {
-        "rows": len(data), "columns": len(data.columns),
+        "rows": len(X), "columns": len(X.columns) + 1,
         "target": "Eligible", "results": results, "best_model": best_model
     }
 
@@ -962,6 +973,10 @@ def train():
             flash("Please select a valid dataset.", "danger")
             return redirect(url_for("train"))
 
+        if not TRAINING_LOCK.acquire(blocking=False):
+            flash("A training job is already running. Please try again later.", "warning")
+            return redirect(url_for("train"))
+
         try:
             result = train_models(file_path)
             best = result["results"][result["best_model"]]
@@ -985,7 +1000,11 @@ def train():
             flash("Training successful.", "success")
         except Exception as error:
             app.logger.exception("Model training failed")
-            flash("Training failed. Check the terminal for the detailed error.", "danger")
+            flash("Training failed. Check the Render logs for the detailed error.", "danger")
+        finally:
+            TRAINING_LOCK.release()
+            if choice == "custom" and os.path.exists(file_path):
+                os.remove(file_path)
 
         return redirect(url_for("train"))
 
